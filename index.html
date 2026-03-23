@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Fuel Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <style>
+    body { font-family: Arial; margin:0; background:#f4f6f9; }
+    .container { padding:15px; }
+
+    .card {
+      background:white;
+      padding:15px;
+      margin-top:15px;
+      border-radius:10px;
+      box-shadow:0 2px 5px rgba(0,0,0,0.1);
+    }
+
+    input, select, button {
+      width:100%;
+      padding:10px;
+      margin-top:8px;
+    }
+
+    button {
+      background:#007bff;
+      color:white;
+      border:none;
+      border-radius:6px;
+    }
+
+    .grid-kpi {
+      display:grid;
+      grid-template-columns:repeat(auto-fit,minmax(120px,1fr));
+      gap:10px;
+    }
+
+    .kpi-card {
+      color:white;
+      padding:15px;
+      border-radius:12px;
+      text-align:center;
+    }
+
+    .blue { background:linear-gradient(135deg,#4facfe,#00f2fe); }
+    .orange { background:linear-gradient(135deg,#f7971e,#ffd200); }
+    .green { background:linear-gradient(135deg,#43e97b,#38f9d7); }
+
+    table {
+      width:100%;
+      border-collapse:collapse;
+      margin-top:10px;
+    }
+
+    th, td {
+      border:1px solid #ddd;
+      padding:8px;
+    }
+
+    th { background:#eee; }
+  </style>
+</head>
+
+<body>
+<div class="container">
+
+<!-- LOGIN -->
+<div id="loginPage">
+  <h2>🔐 Login</h2>
+  <input id="user" placeholder="A หรือ admin">
+  <input id="pass" type="password" placeholder="1234">
+  <button onclick="login()">Login</button>
+</div>
+
+<!-- DASHBOARD -->
+<div id="dashboard" style="display:none;">
+
+  <h2>⛽ Dashboard</h2>
+
+  <!-- KPI -->
+  <div class="grid-kpi">
+    <div class="kpi-card blue">
+      <h4>รวม</h4>
+      <h2 id="total">0</h2>
+    </div>
+
+    <div class="kpi-card orange">
+      <h4>Diesel</h4>
+      <h2 id="dieselTotal">0</h2>
+    </div>
+
+    <div class="kpi-card green">
+      <h4>Benzine</h4>
+      <h2 id="benzineTotal">0</h2>
+    </div>
+  </div>
+
+  <!-- FORM -->
+  <div class="card">
+    <h3>➕ เพิ่มข้อมูล</h3>
+    <input type="date" id="date">
+    <select id="type">
+      <option>Diesel</option>
+      <option>Benzine</option>
+    </select>
+    <input type="number" id="liters" placeholder="ลิตร">
+    <button onclick="addData()">บันทึก</button>
+  </div>
+
+  <!-- CHART -->
+  <div class="card">
+    <h3>📊 กราฟ</h3>
+    <canvas id="chart"></canvas>
+  </div>
+
+  <!-- TABLE -->
+  <div class="card">
+    <h3>📋 ตาราง</h3>
+    <table id="table"></table>
+    <button onclick="exportExcel()">📤 Export Excel</button>
+  </div>
+
+</div>
+
+<!-- MONITORING -->
+<div id="monitoring" style="display:none;">
+  <h2>🖥️ Monitoring</h2>
+
+  <div class="card">
+    <canvas id="allChart"></canvas>
+  </div>
+
+  <div class="card">
+    <table id="allTable"></table>
+  </div>
+</div>
+
+</div>
+
+<script type="module">
+
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+import { getFirestore, collection, addDoc, getDocs } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyCsjWzbGXCXv-DbjUGNi01OHh3B_f8JkDw",
+  authDomain: "gas-monitoring-79de7.firebaseapp.com",
+  projectId: "gas-monitoring-79de7",
+  storageBucket: "gas-monitoring-79de7.firebasestorage.app",
+  messagingSenderId: "361686692468",
+  appId: "1:361686692468:web:2c7b6503dff2a9bd129721"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+
+let currentUser = "";
+let chart, allChart;
+
+// LOGIN
+window.login = function() {
+  const u = user.value;
+  const p = pass.value;
+
+  if (p !== "1234") {
+    alert("รหัสผิด");
+    return;
+  }
+
+  currentUser = u;
+
+  loginPage.style.display = "none";
+
+  if (u.toLowerCase() === "admin") {
+    monitoring.style.display = "block";
+    loadAll();
+  } else {
+    dashboard.style.display = "block";
+    loadData();
+  }
+};
+
+// ADD DATA
+window.addData = async function() {
+  await addDoc(collection(db, "fuel"), {
+    station: currentUser,
+    date: date.value,
+    type: type.value,
+    liters: Number(liters.value)
+  });
+
+  loadData();
+};
+
+// LOAD USER DATA
+async function loadData() {
+  const snapshot = await getDocs(collection(db, "fuel"));
+  const data = snapshot.docs.map(d => d.data());
+
+  table.innerHTML = "<tr><th>วันที่</th><th>ประเภท</th><th>ลิตร</th></tr>";
+
+  let total=0,dTotal=0,bTotal=0;
+  let labels=[], diesel=[], benzine=[];
+
+  data.forEach(d=>{
+    if(d.station===currentUser){
+
+      total+=d.liters;
+      if(d.type==="Diesel") dTotal+=d.liters;
+      if(d.type==="Benzine") bTotal+=d.liters;
+
+      let r=table.insertRow();
+      r.insertCell(0).innerText=d.date;
+      r.insertCell(1).innerText=d.type;
+      r.insertCell(2).innerText=d.liters;
+
+      if(!labels.includes(d.date)) labels.push(d.date);
+    }
+  });
+
+  document.getElementById("total").innerText=total;
+  document.getElementById("dieselTotal").innerText=dTotal;
+  document.getElementById("benzineTotal").innerText=bTotal;
+
+  labels.forEach(dt=>{
+    let dSum=0,bSum=0;
+    data.forEach(d=>{
+      if(d.station===currentUser && d.date===dt){
+        if(d.type==="Diesel") dSum+=d.liters;
+        if(d.type==="Benzine") bSum+=d.liters;
+      }
+    });
+    diesel.push(dSum);
+    benzine.push(bSum);
+  });
+
+  if(chart) chart.destroy();
+  chart=new Chart(document.getElementById("chart"),{
+    type:"bar",
+    data:{
+      labels,
+      datasets:[
+        {label:"Diesel",data:diesel},
+        {label:"Benzine",data:benzine}
+      ]
+    }
+  });
+}
+
+// LOAD ALL (ADMIN)
+async function loadAll(){
+  const snapshot = await getDocs(collection(db, "fuel"));
+  const data = snapshot.docs.map(d=>d.data());
+
+  allTable.innerHTML="<tr><th>ปั๊ม</th><th>วันที่</th><th>ประเภท</th><th>ลิตร</th></tr>";
+
+  let labels=[], total=[];
+
+  data.forEach(d=>{
+    let r=allTable.insertRow();
+    r.insertCell(0).innerText=d.station;
+    r.insertCell(1).innerText=d.date;
+    r.insertCell(2).innerText=d.type;
+    r.insertCell(3).innerText=d.liters;
+
+    if(!labels.includes(d.station)) labels.push(d.station);
+  });
+
+  labels.forEach(st=>{
+    let sum=0;
+    data.forEach(d=>{
+      if(d.station===st) sum+=d.liters;
+    });
+    total.push(sum);
+  });
+
+  if(allChart) allChart.destroy();
+  allChart=new Chart(document.getElementById("allChart"),{
+    type:"bar",
+    data:{
+      labels,
+      datasets:[{label:"รวมลิตร",data:total}]
+    }
+  });
+}
+
+// EXPORT CSV
+window.exportExcel = async function(){
+  const snapshot = await getDocs(collection(db,"fuel"));
+  const data = snapshot.docs.map(d=>d.data());
+
+  let csv="station,date,type,liters\n";
+
+  data.forEach(d=>{
+    csv+=`${d.station},${d.date},${d.type},${d.liters}\n`;
+  });
+
+  const blob=new Blob([csv],{type:"text/csv"});
+  const url=URL.createObjectURL(blob);
+
+  const a=document.createElement("a");
+  a.href=url;
+  a.download="fuel.csv";
+  a.click();
+};
+
+</script>
+
+</body>
+</html>
